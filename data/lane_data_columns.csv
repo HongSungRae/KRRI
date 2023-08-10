@@ -1,0 +1,11 @@
+type,name,description
+curve,Distance,거리[m]
+curve,Curvature,곡률[1/km]
+curve,Vertical offset,선로중심부 높이[mm]
+curve,Cross level offset,캔트[mm]
+straight,Distance,거리[m]
+straight,Cross level irregularity,우측 선로에 대한 좌측 선로 높이차(캔트) 불규칙도[mm]
+straight,Curvature irregularity,곡선에 대한 불규칙도[1/km]
+straight,Lateral irregularity,수평 불규칙도[mm]
+straight,Vertical irregularity,수직 불규칙도[mm]
+straight,Gauge variation,선로 게이지(좌우거리차이) 불규칙도[mm]
