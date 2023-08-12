@@ -1,8 +1,7 @@
 __pycache__
-./data/c_data.npy
-./data/s_data.npy
-./exp
-./answer
+
+/exp
+/answer
 eda.ipynb
 run.bat
 *.npy
