@@ -8,14 +8,18 @@ import torch.optim as optim
 import argparse
 import os
 import json
+import copy
 
 
 # local
-from model import CurveModel, StraightModel
+from model import Model
 from utils import Logger, make_dir, draw_curve, AverageMeter
 from preprocess import processing
 from metric import WeightedMAPE
 from infer import inference
+from dataset import Dataset
+from dgl.dataloading import GraphDataLoader
+
 
 # parser
 parser = argparse.ArgumentParser(description='KRRI')
@@ -81,23 +85,19 @@ def main():
     train_logger = Logger(f'./exp/{args.experiment}/train_loss.log')
 
 
-    # (model, data) call
-    if args.type == 'straight':
-        model = StraightModel(aggregate=args.aggregate,
-                              rnn=args.rnn,
-                              ws=args.ws,
-                              gpu=True,
-                              hidden_size=args.hidden_size,
-                              bidirectional=True).cuda()
-        data = np.load('./data/s_data.npy', allow_pickle=True)
-    elif args.type == 'curve':
-        model = CurveModel(aggregate=args.aggregate,
-                           rnn=args.rnn,
-                           ws=args.ws,
-                           gpu=True,
-                           hidden_size=args.hidden_size,
-                           bidirectional=True).cuda()
-        data = np.load('./data/c_data.npy', allow_pickle=True)
+    # (model, dataloader) call
+    model = Model(type=args.type,
+                  aggregate=args.aggregate,
+                  rnn=args.rnn,
+                  ws=args.ws,
+                  hidden_size=args.hidden_size).cuda()
+    dataset = Dataset(type=args.type,
+                      ws=args.ws,
+                      split='train')
+    dataloader = GraphDataLoader(dataset=dataset,
+                                 batch_size=32,
+                                 shuffle=True,
+                                 drop_last=False)
     
 
     # loss function
@@ -117,14 +117,14 @@ def main():
 
     # train
     for epoch in tqdm(range(args.epochs), desc='Training...'):
-        train(model, data, criterion, optimizer, epoch, train_logger)
+        train(model, dataloader, criterion, optimizer, epoch, train_logger)
         scheduler.step()
     else: # 학습이 모두 끝나면
         torch.save(model, f'./exp/{args.experiment}/model.pth')
         draw_curve(f'./exp/{args.experiment}', train_logger, train_logger)
 
     # inference
-    inference(model, data, args.ws, args.experiment, args.type)
+    inference(model, args.ws, args.experiment, args.type)
 
     # finish
     print(f'Process Completed : it took {(time.time()-start)/60:.2f} minutes...')
@@ -133,50 +133,30 @@ def main():
 
 
 
-
-def train(model, data, criterion, optimizer, epoch, train_logger):
+def train(model, dataloader, criterion, optimizer, epoch, train_logger):
     model.train()
     epoch_loss = AverageMeter()
-    for idx in tqdm(range(10001-args.ws-1),desc=f'index at epoch {epoch}'):
-        target = data[idx+args.ws]['target']
-        target = target.cuda()
-        # if idx == 0:
-        distance = torch.zeros((args.ws,1))
-        graph = []
-        lane = torch.zeros((args.ws,5))
-        norm_target = torch.zeros((args.ws,5,4))
-        for i in range(args.ws):
-            distance[i] = data[idx+i]['distance']
-            g = data[idx+i]['graph']
-            g = g.to(torch.cuda.current_device())
-            graph.append(g)
-            lane[i] = data[idx+i]['lane'] if args.type=='straight' else torch.zeros(5)
-            norm_target[i] = data[idx+i]['norm_target']
+    total_loss = 0
+    for i, (distance, lane, graph, norm_target, target) in tqdm(enumerate(dataloader),desc=f'index at epoch {epoch}'):
         distance = distance.cuda()
         lane = lane.cuda()
+        graph = graph.to(torch.cuda.current_device())
         norm_target = norm_target.cuda()
-        # else: # 첫 성분 삭제 및 마지막에 새로운 시간 추가
-        #     graph.pop(0)
-        #     g = data[idx+args.ws-1]['graph']
-        #     g = g.to(torch.cuda.current_device())
-        #     graph.append(g)
-        #     distance = torch.cat([distance[1:], torch.tensor([[data[idx+args.ws-1]['distance']]]).cuda()], dim=0)
-        #     lane = torch.cat([lane[1:], data[idx+args.ws-1]['lane'].cuda()[None,...]], dim=0) if args.type=='straight' else lane
-        #     norm_target = torch.cat([norm_target[1:], data[idx+args.ws-1]['norm_target'].cuda()[None,...]], dim=0)
-
-        distance = distance.type(torch.float32)  
-        total_loss = 0
+        target = target.cuda() # (bs, 5, 4)
+        graphs = [copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph)]
         for i,damper in enumerate([30,40,50,70,100]):
-            y_pred = model(distance, lane, graph, norm_target, damper)
-            loss = criterion(y_pred, target[i][None,...])
+            y_pred = model(distance, lane, graphs[i], norm_target, damper) # (bs, 4)
+            loss = criterion(y_pred, target[:,i,...])
             total_loss += torch.sum(loss) # https://jjdeeplearning.tistory.com/19
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
-        
         epoch_loss.update(total_loss.item())
-
+        total_loss = 0
+        del graphs
     train_logger.write([epoch+1, epoch_loss.avg])
+
+
 
     
 
