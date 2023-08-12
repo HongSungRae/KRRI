@@ -7,10 +7,12 @@ import warnings
 import argparse
 import json
 import numpy as np
+import dgl
+import copy
 
 # local
 from utils import make_dir
-from model import StraightModel, CurveModel
+from model import Model
 from preprocess import get_mean_std
 
 
@@ -79,10 +81,11 @@ def main(args):
             configuration = json.load(f)
         ws = configuration['ws']
         type = configuration['type']
-        model = StraightModel(aggregate=configuration['aggregate'],
-                                rnn=configuration['rnn'],
-                                ws=ws,
-                                hidden_size=configuration['hidden_size']).cuda()
+        model = Model(type=configuration['type'],
+                      aggregate=configuration['aggregate'],
+                      rnn=configuration['rnn'],
+                      ws=configuration['rnn'],
+                      hidden_size=configuration['hidden_size']).cuda()
         model.load_state_dict(torch.load(f'./exp/{args.experiment_straight}/model.pth'))
         data = np.load('./data/s_data.npy')
         inference(model, data, ws, args.experiment_straight, type)
@@ -91,10 +94,11 @@ def main(args):
             configuration = json.load(f)
         ws = configuration['ws']
         type = configuration['type']
-        model = CurveModel(aggregate=configuration['aggregate'],
-                           rnn=configuration['rnn'],
-                           ws=ws,
-                           hidden_size=configuration['hidden_size']).cuda()
+        model = Model(type=configuration['type'],
+                      aggregate=configuration['aggregate'],
+                      rnn=configuration['rnn'],
+                      ws=configuration['rnn'],
+                      hidden_size=configuration['hidden_size']).cuda()
         model.load_state_dict(torch.load(f'./exp/{args.experiment_curve}/model.pth'))
         data = np.load('./data/c_data.npy')
         inference(model, data, ws, args.experiment_curve, type)
@@ -122,7 +126,7 @@ def merge(experiment_straight, experiment_curve):
 
 
 
-def inference(model, data, ws, experiment, type):
+def inference(model, ws, experiment, type):
     # 이미 추론 결과가 있다면
     if os.path.exists(f'./exp/{experiment}/answer.csv'):
         reply = str(input('이미 추론 결과가 존재합니다. 다시 추론할지 선택하세요. (y/n): ')).lower().strip()
@@ -133,37 +137,53 @@ def inference(model, data, ws, experiment, type):
             return
         else:
             warnings.warn('y 또는 n만 입력하세요.')
-            inference(model, data, ws, experiment, type)
+            inference(model, ws, experiment, type)
             return
     
     # 없다면, init variables
-    model.eval()
+    data = np.load('./data/s_data.npy', allow_pickle=True) if type=='straight' else np.load('./data/c_data.npy', allow_pickle=True)
     answer = pd.read_csv('./data/answer_sample.csv')
     answer_idx = {30:1, 40:5, 50:9, 70:13, 100:17} if type=='straight' else {30:21, 40:25, 50:29, 70:33, 100:37}
     current_position = 0
 
     # test 해서 저장
-    for start in tqdm(range(10001-ws+1,10001-ws+1+50)):#tqdm(range(10001-ws+1,10001-ws+1+1999)):
-        distance = torch.zeros((ws,1))
-        graph = []
-        lane = torch.zeros((ws,5))
-        norm_target = torch.zeros((ws,5,4))
+    for start in tqdm(range(10001-ws+1,10001-ws+1+1999)):
+        model.eval()
+        distance = torch.zeros((1,ws,1))
+        lane = torch.zeros((1,ws,5))
+        norm_target = torch.zeros((1,ws,5,4))
+        
+        # graph
+        feature_wheel = torch.zeros((4, ws, 5, 8))
+        feature_sensor = torch.zeros((2, ws , 5, 4))
+        graph = dgl.heterograph({('wheel', 'front', 'wheel'): ([0,3],[3,0]),
+                                 ('wheel', 'left', 'wheel'): ([0,1],[1,0]),
+                                 ('wheel', 'right', 'wheel'): ([3,2],[2,3]),
+                                 ('wheel', 'rear', 'wheel'): ([1,2],[2,1]),
+                                 ('wheel', 'connect', 'sensor'):([0,1,2,3],[0,0,1,1]),
+                                 ('sensor', 'connect', 'wheel'):([0,0,1,1],[0,1,2,3])})
         for i in range(ws):
-            distance[i] = data[start+i]['distance']
-            g = data[start+i]['graph']
-            g = g.to(torch.cuda.current_device())
-            graph.append(g)
-            lane[i] = data[start+i]['lane'] if type=='straight' else torch.zeros(5)
-            norm_target[i] = data[start+i]['norm_target']
+            distance[0,i,...] = data[start+i]['distance']
+            feature_wheel[:,i,...] = data[start+1]['graph'].nodes['wheel'].data['feature']
+            feature_sensor[:,i,...] = data[start+1]['graph'].nodes['sensor'].data['feature']
+            lane[0,i,...] = data[start+i]['lane'] if type=='straight' else torch.zeros(5)
+            norm_target[0,i,...] = data[start+i]['norm_target']
+        graph.nodes['wheel'].data['feature'] = feature_wheel.type(torch.float32)
+        graph.nodes['sensor'].data['feature'] = feature_sensor.type(torch.float32)
+
+        # to GPU
+        graph = graph.to(torch.cuda.current_device())
         distance = distance.cuda()
         lane = lane.cuda()
         norm_target = norm_target.cuda()
 
+        graphs = [copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph)]
         for i, damper in enumerate([30,40,50,70,100]):
-            y_pred = model(distance, lane, graph, norm_target, damper) # torch.tensor of (1, 4) shape
-            answer.iloc[current_position,answer_idx[damper]:answer_idx[damper]+4] = y_pred.detach().cpu().squeeze().tolist()
+            y_pred = model(distance, lane, graphs[i], norm_target, damper) # torch.tensor of (1, 1, 4) shape
+            answer.iloc[current_position,answer_idx[damper]:answer_idx[damper]+4] = y_pred[0,0,...].detach().cpu().tolist()
             norm_y_pred = (y_pred.detach().cpu().squeeze()-mean_std_dic[type][damper][0])/mean_std_dic[type][damper][1]
-            data[start+ws]['norm_target'][i] = norm_y_pred.type(torch.float32)
+            if not (start+ws==12000):
+                data[start+ws]['norm_target'][i] = norm_y_pred.type(torch.float32)
         current_position += 1
     answer.to_csv(f'./exp/{experiment}/anwser.csv', index=False)
 
