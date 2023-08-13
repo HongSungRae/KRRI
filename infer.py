@@ -165,9 +165,8 @@ def inference(model, ws, experiment, type):
 
         graphs = [copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph)]
         for i, damper in enumerate([30,40,50,70,100]):
-            y_pred = model(distance, lane, graphs[i], norm_target, damper) # torch.tensor of (1, 1, 4) shape
+            y_pred = model(distance, lane, graphs[i], norm_target, damper) # torch.tensor of (1, 4) shape
             answer.iloc[current_position,answer_idx[damper]:answer_idx[damper]+4] = y_pred[0,0,...].detach().cpu().tolist()
-            print(y_pred[0,0,...].detach().cpu().tolist())
             norm_y_pred = (y_pred.detach().cpu().squeeze()-mean_std_dic[type][damper][0])/mean_std_dic[type][damper][1]
             if not (start+ws==12000):
                 data[start+ws]['norm_target'][i] = norm_y_pred.type(torch.float32)
