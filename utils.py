@@ -4,6 +4,7 @@ import os
 from matplotlib import pyplot as plt
 from collections.abc import Iterable
 import numpy as np
+import copy
 
 
 def normalize_KRRI_data(df):
@@ -15,7 +16,7 @@ def normalize_KRRI_data(df):
     '''
     feature = df.iloc[0:,0:31] # 시간도 그냥 표준화함
     feature = (feature-feature.mean())/feature.std()
-    norm_target = df.iloc[0:,31:]
+    norm_target = copy.deepcopy(df.iloc[0:,31:])
     norm_target.rename(columns={'YR_M1_B1_W2':'norm_YR_M1_B1_W2',
                                 'YL_M1_B1_W2':'norm_YL_M1_B1_W2',
                                 'YR_M1_B1_W1':'norm_YR_M1_B1_W1',
