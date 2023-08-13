@@ -118,6 +118,7 @@ def processing(type=None):
                                data_50.iloc[idx,-4:].values,
                                data_70.iloc[idx,-4:].values,
                                data_100.iloc[idx,-4:].values]).type(torch.float32) # (5, 4) shape
+        
         ## lane
         lane = torch.tensor(data_lane.iloc[idx,1:].values).type(torch.float32) if type=='s' else [] # 5 length for straight
 
