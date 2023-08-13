@@ -79,29 +79,15 @@ def main(args):
     if not os.path.exists(f'./exp/{args.experiment_straight}/answer.csv'):
         with open(f'./exp/{args.experiment_straight}/configuration.json', 'r') as f:
             configuration = json.load(f)
-        ws = configuration['ws']
         type = configuration['type']
-        model = Model(type=configuration['type'],
-                      aggregate=configuration['aggregate'],
-                      rnn=configuration['rnn'],
-                      ws=configuration['rnn'],
-                      hidden_size=configuration['hidden_size']).cuda()
-        model.load_state_dict(torch.load(f'./exp/{args.experiment_straight}/model.pth'))
-        data = np.load('./data/s_data.npy')
-        inference(model, data, ws, args.experiment_straight, type)
-    if not os.path.exists(f'./exp/{args.experiment_straight}/answer.csv'):    
-        with open(f'./exp/{args.experiment_straight}/configuration.json', 'r') as f:
+        model = torch.load(f'./exp/{args.experiment_straight}/model.pth').cuda()
+        inference(model, configuration['ws'], args.experiment_straight, type)
+    if not os.path.exists(f'./exp/{args.experiment_curve}/answer.csv'):    
+        with open(f'./exp/{args.experiment_curve}/configuration.json', 'r') as f:
             configuration = json.load(f)
-        ws = configuration['ws']
         type = configuration['type']
-        model = Model(type=configuration['type'],
-                      aggregate=configuration['aggregate'],
-                      rnn=configuration['rnn'],
-                      ws=configuration['rnn'],
-                      hidden_size=configuration['hidden_size']).cuda()
-        model.load_state_dict(torch.load(f'./exp/{args.experiment_curve}/model.pth'))
-        data = np.load('./data/c_data.npy')
-        inference(model, data, ws, args.experiment_curve, type)
+        model = torch.load(f'./exp/{args.experiment_curve}/model.pth').cuda()
+        inference(model, configuration['ws'], args.experiment_curve, type)
 
 
     # 병합
@@ -181,11 +167,12 @@ def inference(model, ws, experiment, type):
         for i, damper in enumerate([30,40,50,70,100]):
             y_pred = model(distance, lane, graphs[i], norm_target, damper) # torch.tensor of (1, 1, 4) shape
             answer.iloc[current_position,answer_idx[damper]:answer_idx[damper]+4] = y_pred[0,0,...].detach().cpu().tolist()
+            print(y_pred[0,0,...].detach().cpu().tolist())
             norm_y_pred = (y_pred.detach().cpu().squeeze()-mean_std_dic[type][damper][0])/mean_std_dic[type][damper][1]
             if not (start+ws==12000):
                 data[start+ws]['norm_target'][i] = norm_y_pred.type(torch.float32)
         current_position += 1
-    answer.to_csv(f'./exp/{experiment}/anwser.csv', index=False)
+    answer.to_csv(f'./exp/{experiment}/answer.csv', index=False)
 
 
 
