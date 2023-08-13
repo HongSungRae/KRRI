@@ -143,17 +143,26 @@ def train(model, dataloader, criterion, optimizer, epoch, train_logger):
         graph = graph.to(torch.cuda.current_device())
         norm_target = norm_target.cuda()
         target = target.cuda() # (bs, 5, 4)
+        distances = [copy.deepcopy(distance), copy.deepcopy(distance), copy.deepcopy(distance), copy.deepcopy(distance), copy.deepcopy(distance)]
+        lanes = [copy.deepcopy(lane), copy.deepcopy(lane), copy.deepcopy(lane), copy.deepcopy(lane), copy.deepcopy(lane)]
         graphs = [copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph)]
+        norm_targets = [copy.deepcopy(norm_target), copy.deepcopy(norm_target), copy.deepcopy(norm_target), copy.deepcopy(norm_target), copy.deepcopy(norm_target)]
         for i,damper in enumerate([30,40,50,70,100]):
-            y_pred = model(distance, lane, graphs[i], norm_target, damper) # (bs, 4)
-            loss = criterion(y_pred, target[:,i,...])
-            total_loss += torch.sum(loss) # https://jjdeeplearning.tistory.com/19
-        optimizer.zero_grad()
-        total_loss.backward()
-        optimizer.step()
-        epoch_loss.update(total_loss.item())
+            y_pred = model(distances[i], lanes[i], graphs[i], norm_targets[i], damper) # (bs, 4)
+            loss = criterion(y_pred, target[:,i,...]) # (bs, 4) vs (bs, 4)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            # total_loss += torch.sum(loss) # https://jjdeeplearning.tistory.com/19
+        # optimizer.zero_grad()
+        # total_loss.backward()
+        # optimizer.step()
+        # epoch_loss.update(total_loss.item())
+        # total_loss = 0
+        epoch_loss.update(total_loss)
         total_loss = 0
-        del graphs
+        del distances, lanes, graphs, norm_targets
     train_logger.write([epoch+1, epoch_loss.avg])
 
 
