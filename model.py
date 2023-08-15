@@ -229,7 +229,7 @@ if __name__ == '__main__':
     curve_trans = Model(type='curve').cuda()
     curve_lstm = Model(type='curve', rnn='lstm')
     pred_curve_trans = curve_trans(distance, lane, copy.deepcopy(graph), norm_target, 30)
-    pred_curve_lstm = curve_trans(distance, lane, copy.deepcopy(graph), norm_target, 30)
+    pred_curve_lstm = curve_trans(distance, lane, copy.deepcopy(graph), norm_target, 40)
     print(f'Curve Transformer output : {pred_curve_trans.shape}')
     print(f'Curve LSTM output : {pred_curve_lstm.shape}')
     del curve_lstm, curve_trans, dataset, dataloader
@@ -249,7 +249,7 @@ if __name__ == '__main__':
     ## model
     straight_trans = Model(type='straight').cuda()
     straight_lstm = Model(type='straight', rnn='lstm')
-    pred_straight_trans = straight_trans(distance, lane, copy.deepcopy(graph), norm_target, 30)
-    pred_straight_lstm = straight_trans(distance, lane, copy.deepcopy(graph), norm_target, 30)
+    pred_straight_trans = straight_trans(distance, lane, copy.deepcopy(graph), norm_target, 50)
+    pred_straight_lstm = straight_trans(distance, lane, copy.deepcopy(graph), norm_target, 100)
     print(f'straight Transformer output : {pred_straight_trans.shape}')
     print(f'Straight LSTM output : {pred_straight_lstm.shape}')
