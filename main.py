@@ -160,7 +160,7 @@ def train(model, dataloader, criterion, optimizer, epoch, train_logger):
         # optimizer.step()
         # epoch_loss.update(total_loss.item())
         # total_loss = 0
-        epoch_loss.update(total_loss)
+        epoch_loss.update(total_loss, 5)
         total_loss = 0
         del distances, lanes, graphs, norm_targets
     train_logger.write([epoch+1, epoch_loss.avg])
