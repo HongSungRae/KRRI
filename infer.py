@@ -11,7 +11,7 @@ import dgl
 import copy
 
 # local
-from utils import make_dir
+from utils import make_dir, AverageMeter
 from model import Model
 from preprocess import get_mean_std
 
@@ -55,7 +55,16 @@ mean_std_dic = {'straight':{30:[s_30_mean, s_30_std],
                          100:[c_100_mean, c_100_std]}}
 
 
-
+mean_std_30 = [AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()]
+mean_std_40 = [AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()]
+mean_std_50 = [AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()]
+mean_std_70 = [AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()]
+mean_std_100 = [AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()]
+mean_std = [mean_std_30,
+            mean_std_40,
+            mean_std_50,
+            mean_std_70,
+            mean_std_100]
 
 
 # argparse
@@ -65,6 +74,8 @@ def get_parser():
                         help='Straight model experiment name')
     parser.add_argument('--experiment_curve', '--ec', default='', type=str,
                         help='Curve model experiment name')
+    parser.add_argument('--avg_type', default='inference', type=str, choices=['train', 'inference'],
+                        help='추론 단계에서 사용할 target의 mean과 std가 어느 데이터에서 계산되는가')
     args = parser.parse_args()
     return args
 
@@ -133,7 +144,8 @@ def inference(model, ws, experiment, type):
     current_position = 0
 
     # test 해서 저장
-    for start in tqdm(range(10001-ws+1,10001-ws+1+1999)):
+
+    for start in tqdm(range(10000-ws+1,10000-ws+1+1999)):#tqdm(range(10001-ws)):#tqdm(range(10001-ws+1,10001-ws+1+1999)):
         model.eval()
         distance = torch.zeros((1,ws,1))
         lane = torch.zeros((1,ws,5))
@@ -150,26 +162,33 @@ def inference(model, ws, experiment, type):
                                  ('sensor', 'connect', 'wheel'):([0,0,1,1],[0,1,2,3])})
         for i in range(ws):
             distance[0,i,...] = data[start+i]['distance']
-            feature_wheel[:,i,...] = data[start+1]['graph'].nodes['wheel'].data['feature']
-            feature_sensor[:,i,...] = data[start+1]['graph'].nodes['sensor'].data['feature']
+            feature_wheel[:,i,...] = data[start+i]['graph'].nodes['wheel'].data['feature']
+            feature_sensor[:,i,...] = data[start+i]['graph'].nodes['sensor'].data['feature']
             lane[0,i,...] = data[start+i]['lane'] if type=='straight' else torch.zeros(5)
             norm_target[0,i,...] = data[start+i]['norm_target']
         graph.nodes['wheel'].data['feature'] = feature_wheel.type(torch.float32)
         graph.nodes['sensor'].data['feature'] = feature_sensor.type(torch.float32)
-
+        
         # to GPU
         graph = graph.to(torch.cuda.current_device())
         distance = distance.cuda()
         lane = lane.cuda()
         norm_target = norm_target.cuda()
 
+        distances = [copy.deepcopy(distance), copy.deepcopy(distance), copy.deepcopy(distance), copy.deepcopy(distance), copy.deepcopy(distance)]
+        lanes = [copy.deepcopy(lane), copy.deepcopy(lane), copy.deepcopy(lane), copy.deepcopy(lane), copy.deepcopy(lane)]
         graphs = [copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph), copy.deepcopy(graph)]
-        for i, damper in enumerate([30,40,50,70,100]):
-            y_pred = model(distance, lane, graphs[i], norm_target, damper) # torch.tensor of (1, 4) shape
-            answer.iloc[current_position,answer_idx[damper]:answer_idx[damper]+4] = y_pred[0,0,...].detach().cpu().tolist()
-            norm_y_pred = (y_pred.detach().cpu().squeeze()-mean_std_dic[type][damper][0])/mean_std_dic[type][damper][1]
-            if not (start+ws==12000):
-                data[start+ws]['norm_target'][i] = norm_y_pred.type(torch.float32)
+        norm_targets = [copy.deepcopy(norm_target), copy.deepcopy(norm_target), copy.deepcopy(norm_target), copy.deepcopy(norm_target), copy.deepcopy(norm_target)]
+        for j, damper in enumerate([30,40,50,70,100]):
+            model.eval()
+            y_pred = model(distances[j], lanes[j], graphs[j], norm_targets[j], damper) # torch.tensor of (1, 4) shape
+            answer.iloc[current_position,answer_idx[damper]:answer_idx[damper]+4] = y_pred[0,...].detach().cpu().tolist()
+            for k in range(4):
+                mean_std[j][k].update(y_pred[0,k].item())
+                data[start+ws]['norm_target'][j][k] = (y_pred.detach().cpu().squeeze()[k].item()-mean_std[j][k].avg)/(mean_std[j][k].std+1e-3)
+            # norm_y_pred = (y_pred.detach().cpu().squeeze()-mean_std_dic[type][damper][0])/mean_std_dic[type][damper][1]
+            # if not (start+ws==12000):
+                # data[start+ws]['norm_target'][j] = norm_y_pred.type(torch.float32)
         current_position += 1
     answer.to_csv(f'./exp/{experiment}/answer.csv', index=False)
 
