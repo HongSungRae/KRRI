@@ -116,14 +116,24 @@ def main():
 
 
     # train
+    best_loss = 99999
+    count = 0
     for epoch in tqdm(range(args.epochs), desc='Training...'):
-        train(model, dataloader, criterion, optimizer, epoch, train_logger)
+        epoch_loss = train(model, dataloader, criterion, optimizer, epoch, train_logger)
         scheduler.step()
-    else: # 학습이 모두 끝나면
         torch.save(model, f'./exp/{args.experiment}/model.pth')
-        draw_curve(f'./exp/{args.experiment}', train_logger, train_logger)
+        if best_loss > epoch_loss:
+            best_loss = epoch_loss
+            count = 0
+        else:
+            count += 1
+        
+        if count == 2:
+            print(f'Early stopped at epoch {epoch}')
+            break
 
     # inference
+    draw_curve(f'./exp/{args.experiment}', train_logger, train_logger)
     inference(model, args.ws, args.experiment, args.type)
 
     # finish
@@ -155,17 +165,11 @@ def train(model, dataloader, criterion, optimizer, epoch, train_logger):
             optimizer.step()
             total_loss += loss.item()
             # total_loss += torch.sum(loss) # https://jjdeeplearning.tistory.com/19
-        # optimizer.zero_grad()
-        # total_loss.backward()
-        # optimizer.step()
-        # epoch_loss.update(total_loss.item())
-        # total_loss = 0
         epoch_loss.update(total_loss, 5)
         total_loss = 0
         del distances, lanes, graphs, norm_targets
     train_logger.write([epoch+1, epoch_loss.avg])
-
-
+    return epoch_loss.avg
 
     
 
