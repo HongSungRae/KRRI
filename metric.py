@@ -1,13 +1,32 @@
-class WeightedMAPE:
-    '''
-    정답 set 공개 후에 완성 예정
-    
-    == 계산 방법 ==
-    예측해야하는 sequence 1999개에 대해서 첫 시퀀스부터 1.0001에서 1.1999까지 weight가 선형 증가
-    MAPE = \sum_{n}{(weigt|y_true - y_pred|)/(|y_true|)*(1/n)*100}
-    '''
-    def __init__(self):
-        pass
+import torch
 
+
+
+class WeightedMAPE:
+    def __init__(self):
+        self.n = 0
+        self.sum = 0
+
+    def calc_mape(self, y_pred, y_true, position, n=1):
+        self.n += n
+        weight = 1.0001 + 0.0001*position
+        self.sum += torch.sum(weight*torch.abs(y_true-y_pred)/torch.abs(y_true)).item()
+        
     def get_mape(self):
-        pass
+        return self.sum * 1/self.n * 100
+    
+
+
+if __name__ == '__main__':
+    w_mape = WeightedMAPE()
+
+    y_true = torch.randn(32,4)
+    y_pred = torch.randn(32,4)
+    w_mape.calc_mape(y_pred, y_true, 399, y_pred.shape[0])
+
+    y_true = torch.randn(32,4)
+    y_pred = torch.randn(32,4)
+    w_mape.calc_mape(y_pred, y_true, 400, y_pred.shape[0])
+
+    mape = w_mape.get_mape()
+    print(mape)
